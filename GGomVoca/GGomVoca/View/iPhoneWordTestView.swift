@@ -12,6 +12,8 @@ enum Field: Hashable {
 }
 
 struct iPhoneWordTestView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    
     // 시험지 fullscreen 닫기 위한 Property
     @Binding var isTestMode: Bool
     
@@ -51,12 +53,12 @@ struct iPhoneWordTestView: View {
     var timer: String {
         vm.timeRemaining == -1 ? "⏰ 시험 종료" : vm.convertSecondsToTime(seconds: vm.timeRemaining)
     }
-    
-    // 시험 종료 후 결과지로 이동하기 위한 Property
-    @State var isFinished: Bool = false
-    
+        
     var body: some View {
         VStack {
+            Text("\(Image(systemName: "clock")) \(timer)")
+                .horizontalAlignSetting(.center)
+                .foregroundColor(vm.timeRemaining < 4 ? .red : colorScheme == .light ? .black : .white)
             
             Spacer()
             
@@ -64,13 +66,18 @@ struct iPhoneWordTestView: View {
                 Text(vm.showQuestion(testType: testType))
                     .font(.largeTitle)
                     .frame(width: UIScreen.main.bounds.width * 0.9)
+                    .multilineTextAlignment(.center)
             }
             
             Spacer()
             
-            if timeOver||isExistLastAnswer {
-                Text("\(Image(systemName: "exclamationmark.circle")) 우상단의 제출 버튼을 눌러주세요")
+            if vm.isLastQuestion {
+                Text("\(Image(systemName: "exclamationmark.circle")) 마지막 문제입니다.\n완료 버튼을 누르면 시험지가 자동 제출됩니다.")
+                    .font(.footnote)
+                    .foregroundColor(.gray)
+                    .multilineTextAlignment(.center)
             }
+            
             TextField("\(textFieldPlaceHolder)", text: $answer)
                 .multilineTextAlignment(.center)
                 .textFieldStyle(.roundedBorder)
@@ -80,15 +87,9 @@ struct iPhoneWordTestView: View {
                 .submitLabel(.done)
                 .onSubmit {
                     if !answer.isEmpty {
-                        // 마지막 문제일 경우 답변 저장만 함
-                        vm.saveAnswer(answer: answer)
-                        // 마지막 문제가 아닌 경우
-                        if !isExistLastAnswer {
-                            vm.showNextQuestion()
-                            answer.removeAll()
-                            vm.restartTimer()
-                            focusedField = .answer
-                        }
+                        vm.nextActions(answer: answer)
+                        answer.removeAll()
+                        focusedField = .answer
                     } else {
                         focusedField = .answer
                     }
@@ -96,53 +97,33 @@ struct iPhoneWordTestView: View {
                 .disabled(timeOver||isExistLastAnswer)
         }
         .onAppear {
+            vm.testType = testType
             vm.getVocabulary(vocabularyID: vocabularyID)
             vm.createPaper(isWholeWord: isWholeWord)
             vm.startTimer()
             focusedField = .answer
         }
-        .navigationTitle("\(timer)")
+        .navigationTitle("\(vm.currentQuestionNum + 1) / \(vm.testPaper.count)")
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: $vm.isFinished) {
+            WordTestResult(isTestMode: $isTestMode, vm: vm, testType: testType)
+        }
         .toolbar {
-            // 마지막 문제까지 제출하거나 제한 시간이 끝난 경우 제출 버튼 나옴
-            if isExistLastAnswer || vm.timeRemaining == -1 {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        // 마지막 submit 안하고 timeover된 경우
-                        if vm.testPaper.last?.answer == nil {
-                            vm.saveAnswer(answer: "")
-                        }
-                        // 타이머 종료
-                        vm.cancelTimer()
-                        // 문제지 채점
-                        vm.gradeTestPaper(testType: testType)
-                        vm.testResult()
-                        isFinished = true
-                    } label: {
-                        Text("제출")
-                    }
-                    .navigationDestination(isPresented: $isFinished) {
-                        WordTestResult(isTestMode: $isTestMode, vm: vm, testType: testType)
-                    }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    vm.nextActions(answer: "")
+                    answer.removeAll()
+                    focusedField = .answer
+                } label: {
+                    Text("pass")
                 }
-                // 마지막 문제가 아닐 때는 PASS 버튼
-            } else {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        vm.saveAnswer(answer: "")
-                        vm.showNextQuestion()
-                        answer.removeAll()
-                        if !isExistLastAnswer {
-                            vm.restartTimer()
-                        }
-                        focusedField = .answer
-                    } label: {
-                        Text("pass")
-                    }
-                    
-                }
+                
             }
         }
     }
+    
+    
+    
 }
 
 //struct iPhoneWordTestView_Previews: PreviewProvider {

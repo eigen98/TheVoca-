@@ -21,13 +21,17 @@ struct DisplaySplitView: View {
     // MARK: View Properties
     @StateObject var viewModel : DisplaySplitViewModel
     @State private var splitViewVisibility: NavigationSplitViewVisibility = .all
-    //NavigationSplitView 선택 단어장 Id
+    /// - NavigationSplitView 선택 단어장 Id
     @State private var selectedVocabulary : Vocabulary?
-    //단어장 추가 뷰 show flag
+    /// - 단어장 추가 뷰 show flag
     @State private var isShowingAddVocabulary: Bool = false
-    
-    // 편집 모드 관련
+    /// - EditMode
     @State private var editMode: EditMode = .inactive
+    /// - Searching
+    @State private var inputKeyword: String = ""
+    private var keyword: String {
+        inputKeyword.trimmingCharacters(in: .whitespaces).lowercased()
+    }
     
     var body: some View {
         NavigationSplitView(columnVisibility: $splitViewVisibility) {
@@ -39,23 +43,18 @@ struct DisplaySplitView: View {
                     case "KO":
                         KOWordListView(vocabularyID: selectedVocabulary.id)
                             .id(selectedVocabulary.id)
-                            .toolbar(.hidden, for: .tabBar)
                     case "EN" :
                         ENWordListView(vocabularyID: selectedVocabulary.id)
                             .id(selectedVocabulary.id)
-                            .toolbar(.hidden, for: .tabBar)
                     case "JA" :
                         JPWordListView(vocabularyID: selectedVocabulary.id)
                             .id(selectedVocabulary.id)
-                            .toolbar(.hidden, for: .tabBar)
                     case "FR" :
                         FRWordListView(vocabularyID: selectedVocabulary.id)
                             .id(selectedVocabulary.id)
-                            .toolbar(.hidden, for: .tabBar)
                     default:
                         WordListView(vocabularyID: selectedVocabulary.id)
                             .id(selectedVocabulary.id)
-                            .toolbar(.hidden, for: .tabBar)
                     }
                 }
             } else {
@@ -63,14 +62,11 @@ struct DisplaySplitView: View {
             }
         }
         .navigationSplitViewStyle(.automatic)
+        .searchable(text: $inputKeyword, placement: .navigationBarDrawer, prompt: "등록한 단어 검색")
         .onAppear {
-            //fetch 단어장 data
-//            UserManager.shared.japanishVocabularyIDs.removeAll()
-//            UserManager.shared.englishVocabularyIDs.removeAll()
-//            UserManager.shared.koreanVocabularyIDs.removeAll()
-//            UserManager.shared.frenchVocabularyIDs.removeAll()
-//            UserManager.shared.pinnedVocabularyIDs.removeAll()
-//
+            viewModel.getVocabularyData()
+        }
+        .refreshable {
             viewModel.getVocabularyData()
         }
     }
@@ -81,7 +77,11 @@ struct DisplaySplitView: View {
             if viewModel.vocabularyList.isEmpty {
                 emptyVocabularyListView()
             } else {
-                vocabularyListView()
+                if !inputKeyword.isEmpty {
+                    SearchingResultsInMyWordsView(selectedVocabulary: $selectedVocabulary, keyword: keyword)
+                } else {
+                    vocabularyListView()
+                }
             }
         }
         .navigationBarTitle("단어장")
@@ -91,13 +91,13 @@ struct DisplaySplitView: View {
                 Button {
                     isShowingAddVocabulary.toggle()
                 } label: {
-                    //                    Image(systemName: "plus.circle")
+                    //Image(systemName: "plus.circle")
                     Image(systemName: "folder.badge.plus")
-                    //                    Image(systemName: "doc.badge.plus")
-                    //                    HStack(spacing: 3) {
-                    //                        Image(systemName: "plus.circle")
-                    //                        Text("단어장 추가")
-                    //                    }
+                    //Image(systemName: "doc.badge.plus")
+                    //HStack(spacing: 3) {
+                    //Image(systemName: "plus.circle")
+                    //Text("단어장 추가")
+                    //}
                 }
                 .disabled(editMode == .active)
             }
@@ -105,19 +105,26 @@ struct DisplaySplitView: View {
         .sheet(isPresented: $isShowingAddVocabulary) {
             AddVocabularyView(addCompletion:{  name , nationality in
                 viewModel.addVocabulary(name: name, nationality: nationality)})
-           
                 .presentationDetents([.height(CGFloat(270))])
         }
     }
     
     // MARK: VocabularyList가 비어있을 때 표시되는 sidebar View
     func emptyVocabularyListView() -> some View {
-        VStack(spacing: 10) {
-            Text("단어장 없음").font(.title3)
-            Text("하단의 버튼을 눌러 단어장을 생성하세요")
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(alignment: .center, spacing: 10) {
+                    Text("단어장 없음").font(.title3)
+                    Text("하단의 \(Image(systemName: "folder.badge.plus"))을 눌러 단어장을 생성하세요.")
+                    Text("(혹은 아래로 잡아당겨 데이터 동기화)")
+                }
+                .foregroundColor(.gray)
+                .padding()
+                .padding(.bottom, 40)
+                .horizontalAlignSetting(.center)
+                .frame(minHeight: geometry.size.height)
+            }
         }
-        .foregroundColor(.gray)
-        .padding()
     }
 
     // MARK: VocabularyList가 비어있지 않을 때 표시되는 sidebar view
@@ -127,13 +134,14 @@ struct DisplaySplitView: View {
             if !pinnedVocabularyIDs.isEmpty {
                 Section("고정된 단어장") {
                     ForEach(pinnedVocabularyIDs, id: \.self) { vocabularyID in
-                        let vocabulary = viewModel.getVocabulary(for: vocabularyID)
-                        VocabularyCell(
-                            pinnedCompletion: { vocaId in
-                                viewModel.updateIsPinnedVocabulary(id: vocaId)
-                            }, deleteCompletion: {
-                                viewModel.getVocabularyData()
-                            }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        if let vocabulary = viewModel.getVocabulary(for: vocabularyID) {
+                            VocabularyCell(
+                                pinnedCompletion: { vocaId in
+                                    viewModel.updateIsPinnedVocabulary(id: vocaId)
+                                }, deleteCompletion: { vocaId in
+                                    viewModel.deleteVocabulary(id: vocaId.uuidString)
+                                }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        }
                     }
                     .onDelete { indexSet in
                         for offset in indexSet {
@@ -183,12 +191,14 @@ struct DisplaySplitView: View {
             if !koreanVocabularyIDs.isEmpty {
                 Section("한국어") {
                     ForEach(koreanVocabularyIDs, id: \.self) { vocabularyID in
-                        let vocabulary = viewModel.getVocabulary(for: vocabularyID)
-                        VocabularyCell(pinnedCompletion: { vocaId in
-                            viewModel.updateIsPinnedVocabulary(id: vocaId)
-                        }, deleteCompletion: {
-                            viewModel.getVocabularyData()
-                        }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        if let vocabulary = viewModel.getVocabulary(for: vocabularyID) {
+                            VocabularyCell(
+                                pinnedCompletion: { vocaId in
+                                    viewModel.updateIsPinnedVocabulary(id: vocaId)
+                                }, deleteCompletion: { vocaId in
+                                    viewModel.deleteVocabulary(id: vocaId.uuidString)
+                                }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        }
                     }
                     .onDelete { indexSet in
                         for offset in indexSet {
@@ -206,12 +216,14 @@ struct DisplaySplitView: View {
             if !englishVocabularyIDs.isEmpty {
                 Section("영어") {
                     ForEach(englishVocabularyIDs, id: \.self) { vocabularyID in
-                        let vocabulary = viewModel.getVocabulary(for: vocabularyID)
-                        VocabularyCell(pinnedCompletion: {vocaId in
-                            viewModel.updateIsPinnedVocabulary(id: vocaId )
-                        }, deleteCompletion: {
-                            viewModel.getVocabularyData()
-                        }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        if let vocabulary = viewModel.getVocabulary(for: vocabularyID) {
+                            VocabularyCell(
+                                pinnedCompletion: { vocaId in
+                                    viewModel.updateIsPinnedVocabulary(id: vocaId)
+                                }, deleteCompletion: { vocaId in
+                                    viewModel.deleteVocabulary(id: vocaId.uuidString)
+                                }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        }
                     }
                     .onDelete { indexSet in
                         for offset in indexSet {
@@ -229,12 +241,14 @@ struct DisplaySplitView: View {
             if !japanishVocabularyIDs.isEmpty {
                 Section("일본어") {
                     ForEach(japanishVocabularyIDs, id: \.self) { vocabularyID in
-                        let vocabulary = viewModel.getVocabulary(for: vocabularyID)
-                        VocabularyCell(pinnedCompletion: { vocaId in
-                            viewModel.updateIsPinnedVocabulary(id: vocaId )
-                        }, deleteCompletion: {
-                            viewModel.getVocabularyData()
-                        }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        if let vocabulary = viewModel.getVocabulary(for: vocabularyID) {
+                            VocabularyCell(
+                                pinnedCompletion: { vocaId in
+                                    viewModel.updateIsPinnedVocabulary(id: vocaId)
+                                }, deleteCompletion: { vocaId in
+                                    viewModel.deleteVocabulary(id: vocaId.uuidString)
+                                }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        }
                     }
                     .onDelete { indexSet in
                         for offset in indexSet {
@@ -252,12 +266,14 @@ struct DisplaySplitView: View {
             if !frenchVocabularyIDs.isEmpty {
                 Section("프랑스어") {
                     ForEach(frenchVocabularyIDs, id: \.self) { vocabularyID in
-                        let vocabulary = viewModel.getVocabulary(for: vocabularyID)
-                        VocabularyCell(pinnedCompletion: { vocaId in
-                            viewModel.updateIsPinnedVocabulary(id: vocaId )
-                        }, deleteCompletion: {
-                            viewModel.getVocabularyData()
-                        }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        if let vocabulary = viewModel.getVocabulary(for: vocabularyID) {
+                            VocabularyCell(
+                                pinnedCompletion: { vocaId in
+                                    viewModel.updateIsPinnedVocabulary(id: vocaId)
+                                }, deleteCompletion: { vocaId in
+                                    viewModel.deleteVocabulary(id: vocaId.uuidString)
+                                }, selectedVocabulary: $selectedVocabulary, vocabulary: vocabulary, editMode: $editMode)
+                        }
                     }
                     .onDelete { indexSet in
                         for offset in indexSet {
@@ -316,7 +332,6 @@ struct DisplaySplitView: View {
                     .fontWeight(.light)
                 Image(systemName: "arrow.right")
                 Image(systemName: "folder.badge.plus")
-//                        Image(systemName: "plus.circle")
                     .font(.largeTitle)
                     .fontWeight(.light)
                 Image(systemName: "arrow.right")
@@ -351,23 +366,6 @@ struct DisplaySplitView: View {
             }
         }
     }
-
-    
-//    // 3개의 단어장 불러오기
-//    func getRecentVocabulary() -> [Vocabulary] {
-//        var result = [Vocabulary]()
-//        print("아직 돌기전", result)
-//        let vocaIds = UserManager.shared.recentVocabulary
-//        print("vocaIds", vocaIds)
-//        for vocaId in vocaIds {
-//            if let id = UUID(uuidString: vocaId) {
-//                print(id)
-//                result.append(getVocaItem(for: id))
-//            }
-//        }
-//
-//        return result
-//    }
 }
 
 struct VocabularyListView_Previews: PreviewProvider {
